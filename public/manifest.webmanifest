@@ -1,0 +1,13 @@
+{
+  "name": "Strata — Stock Screener",
+  "short_name": "Strata",
+  "description": "Scan the U.S. stock market with technical filters and build screening strategies without code.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090b0f",
+  "theme_color": "#090b0f",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/apple-icon.svg", "sizes": "180x180", "type": "image/svg+xml" }
+  ]
+}

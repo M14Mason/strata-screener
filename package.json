@@ -1,0 +1,39 @@
+{
+  "name": "strata-screener",
+  "version": "0.1.0",
+  "description": "Free U.S. stock screener with a no-code technical strategy builder",
+  "scripts": {
+    "test": "tsx --conditions react-server scripts/engine-test.mts",
+    "dev": "next dev --turbopack -p 4321",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "data:universe": "node scripts/build-universe.mjs",
+    "data:profiles": "node scripts/build-profiles.mjs",
+    "prebuild": "tsx scripts/fetch-bundle.mts",
+    "test:bundle": "tsx --conditions react-server scripts/bundle-test.mts",
+    "data:bundle": "tsx scripts/build-bundle.mts",
+    "data:verify": "tsx --conditions react-server scripts/bundle-verify.mts",
+    "start:local": "next start -p 4321"
+  },
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "motion": "^12.43.0",
+    "next": "^15.5.25",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
+    "typescript": "5.9"
+  }
+}

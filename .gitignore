@@ -1,0 +1,18 @@
+node_modules
+.next
+out
+.cache
+.env
+.env.local
+.env*.local
+next-env.d.ts
+*.tsbuildinfo
+.DS_Store
+.vercel
+
+# The EOD dataset is tens of megabytes and is rebuilt daily. It is published as
+# a GitHub Release asset and pulled at build time, never committed.
+data/eod-bundle.bin
+data/*.bin
+!data/.gitkeep
+!data/README.md

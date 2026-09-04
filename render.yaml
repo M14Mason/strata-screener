@@ -1,0 +1,23 @@
+# Render blueprint.
+#
+# Render runs a long-lived Node process, which suits this app: the indicator
+# snapshot cache lives in memory, so the first scan warms it and every scan
+# afterwards is milliseconds. A serverless host rebuilds that cache on each cold
+# start instead.
+services:
+  - type: web
+    name: strata-screener
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MARKET_DATA_PROVIDER
+        value: bundle
+      # Set this in the Render dashboard to the release asset URL so each
+      # deploy pulls the current dataset.
+      - key: EOD_BUNDLE_URL
+        sync: false
