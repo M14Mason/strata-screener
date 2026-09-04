@@ -14,7 +14,8 @@
     "test:bundle": "tsx --conditions react-server scripts/bundle-test.mts",
     "data:bundle": "tsx scripts/build-bundle.mts",
     "data:verify": "tsx --conditions react-server scripts/bundle-verify.mts",
-    "start:local": "next start -p 4321"
+    "start:local": "next start -p 4321",
+    "test:real": "tsx --conditions react-server scripts/verify-real-data.mts"
   },
   "license": "MIT",
   "type": "module",

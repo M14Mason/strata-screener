@@ -21,5 +21,7 @@ jobs:
         run: npm test
       - name: Dataset format tests
         run: npm run test:bundle
+      - name: Indicators vs. real market data
+        run: npm run test:real
       - name: Production build
         run: npm run build

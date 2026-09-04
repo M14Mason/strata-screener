@@ -137,6 +137,16 @@ export interface BollingerResult {
   percentB: Series;
 }
 
+/**
+ * Bollinger Bands, centred on a *simple* moving average.
+ *
+ * Some vendors centre the bands on an EMA instead. Bollinger's own definition
+ * uses an SMA, as do Finviz, StockCharts and TradingView by default, so that is
+ * what this returns. `scripts/verify-real-data.mts` pins the distinction down
+ * against real bars: the standard-deviation term matches an EMA-centred vendor
+ * exactly (identical band width), and re-centring on EMA(period) reproduces
+ * their middle band to 1e-13.
+ */
 export function bollinger(closes: number[], period = 20, mult = 2): BollingerResult {
   const n = closes.length;
   const middle = sma(closes, period);
