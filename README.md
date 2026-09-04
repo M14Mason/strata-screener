@@ -1,5 +1,7 @@
 # Strata — stock screener & no-code strategy builder
 
+**Live: <https://strata-screener.fly.dev>** · [Source](https://github.com/M14Mason/strata-screener)
+
 Scan the U.S. stock market with technical and fundamental filters, build your own
 screening strategies without writing code, and see exactly why each result matched.
 
@@ -13,6 +15,14 @@ no alerts, no broker connections, no paper trading, no portfolio tracking and no
 predictions. Nothing in it is investment advice.
 
 ---
+
+> **A note on the data you are looking at.** The live instance runs on
+> **simulated** prices, badged DEMO DATA on every screen, because there is no
+> reliable keyless source of bulk U.S. market data — see
+> [Getting real market data](#getting-real-market-data-onto-a-deployed-instance).
+> The symbols, company names, exchanges, sectors and market caps *are* real. The
+> indicator maths is verified against real market data and an independent
+> vendor's computation (`npm run test:real`).
 
 ## Quick start
 
@@ -32,6 +42,7 @@ Other scripts:
 | `npm run build` / `npm start` | Production build and server (`start` honours `$PORT`) |
 | `npm test` | 52 engine assertions — indicators, rule semantics, scan behaviour |
 | `npm run test:bundle` | 10 assertions on the dataset binary format |
+| `npm run test:real` | Indicators cross-checked against real AAPL bars and an independent vendor |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run data:bundle` | Build the end-of-day dataset (needs `POLYGON_API_KEY`) |
 | `npm run data:verify` | Sanity-check a built dataset before publishing |
@@ -44,14 +55,22 @@ Other scripts:
 
 The app is a normal Next.js server. Two hosts it is configured for:
 
-**Vercel** — import the repo at [vercel.com/new](https://vercel.com/new). `vercel.json`
-is already set up. Zero config; it will deploy on demo data until you add a
-dataset (below).
+**Fly.io** — the live instance. `fly.toml` and the `Dockerfile` are ready:
 
-**Render** — `render.yaml` is a ready blueprint. Render runs a long-lived Node
-process, which suits this app better: the indicator cache lives in memory, so the
-first scan warms it and every later scan is milliseconds. A serverless host
-rebuilds that cache on each cold start.
+```bash
+fly launch --copy-config --no-deploy
+fly deploy
+```
+
+**Render** — `render.yaml` is a ready blueprint.
+
+**Vercel** — import the repo at [vercel.com/new](https://vercel.com/new);
+`vercel.json` is already set up.
+
+Fly and Render are preferred over serverless: both run a long-lived process, and
+this app keeps its indicator cache in memory, so the first scan warms it and
+every later scan is milliseconds. A serverless host rebuilds that cache on every
+cold start.
 
 Either way, nothing has to run on your machine once it is deployed.
 
@@ -192,13 +211,21 @@ only once:
 4. **Server-side only.** The browser holds the request and the returned rows —
    never the universe, never the bar history.
 
-Measured on the demo provider, full universe of 6,312 common stocks:
+Measured on the deployed instance (shared-cpu-1x), full universe of 6,312
+common stocks:
 
 | | |
 | --- | --- |
-| Cold scan, building every snapshot | ~6 s |
-| Warm re-scan (any filter or strategy change) | **15–60 ms** |
+| Cold scan, building every snapshot | ~6.4 s |
+| Warm re-scan (any filter or strategy change) | **47 ms** |
 | A preset strategy across the whole universe | 25–60 ms |
+
+Memory matters as much as speed here: a whole-universe scan originally needed
+~717 MB and died with a V8 heap OOM on a small instance. Two changes fixed it —
+snapshots are built in chunks so raw bars are released as they go, and metric
+values are packed into one `Float64Array` per symbol instead of ~71 JS arrays.
+JS heap peak is now **135 MB** (38 MB retained), with the ~105 MB of typed
+arrays off-heap where V8's old-space limit does not apply.
 
 Because re-scans are that cheap, the result count updates live as you edit filters
 instead of waiting for a Scan press.
@@ -261,6 +288,20 @@ the active provider, dataset state, universe counts and cache state.
 
 ### Testing
 
+`npm run test:real` — the indicator library against an independent vendor's
+computation over 317 real split-adjusted AAPL daily bars, committed as a
+fixture so the test is deterministic and needs no network. RSI(14) and MACD
+12/26/9 agree to within 1e-9; SMA matches a hand-rolled mean to floating-point
+precision.
+
+Bollinger Bands differed, and the cause turned out to be a definitional split
+rather than a defect: the vendor centres its bands on an EMA, while Bollinger's
+own definition uses an SMA (as do Finviz, StockCharts and TradingView by
+default). The SMA centre is what ships, and the test pins the distinction down
+by asserting both that the band *width* matches the vendor exactly — proving the
+standard-deviation term agrees — and that re-centring on EMA(20) reproduces
+their middle band to 1e-13.
+
 `npm test` — 52 assertions: RSI against Wilder's reference series *and* an
 independently written implementation; rolling extremes against brute force;
 filter enforcement; every preset strategy re-verified against its own snapshot;
@@ -275,8 +316,8 @@ accuracy, volume scaling, missing-session handling, batch/single agreement,
 lookback windows, and that a corrupt file fails loudly rather than silently
 decoding garbage.
 
-Both run in CI on every push (`.github/workflows/ci.yml`), alongside a typecheck
-and a production build.
+All three run in CI on every push (`.github/workflows/ci.yml`), alongside a
+typecheck and a production build.
 
 ---
 
