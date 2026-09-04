@@ -70,6 +70,17 @@ jobs:
             --notes "Built $(date -u +'%Y-%m-%d %H:%M UTC'). Consumed at build time via EOD_BUNDLE_URL."
 
       # Redeploy so the running site picks up today's data.
+      #
+      # The check lives in the script rather than an `if:` because the `secrets`
+      # context is not available in step conditions -- referencing it there is a
+      # workflow-file error, not a false condition.
       - name: Trigger host redeploy
-        if: ${{ secrets.DEPLOY_HOOK_URL != '' }}
-        run: curl -fsS -X POST "${{ secrets.DEPLOY_HOOK_URL }}"
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+        run: |
+          if [ -n "$DEPLOY_HOOK_URL" ]; then
+            echo "Triggering redeploy hook…"
+            curl -fsS -X POST "$DEPLOY_HOOK_URL"
+          else
+            echo "No DEPLOY_HOOK_URL secret set — skipping redeploy."
+          fi
