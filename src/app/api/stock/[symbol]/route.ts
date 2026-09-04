@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getProvider } from "@/lib/data/provider";
 import { getListing, getProfile } from "@/lib/data/reference";
 import { demoBeta } from "@/lib/data/demo";
-import { LOOKBACK_BARS } from "@/lib/engine/snapshot";
+import { LOOKBACK_BARS, METRIC_IDS, metricValue, metricsToObject } from "@/lib/engine/snapshot";
 import { getSnapshot } from "@/lib/engine/store";
 import type { Bar } from "@/lib/data/types";
 
@@ -114,8 +114,8 @@ export async function GET(request: Request, context: { params: Promise<{ symbol:
         metrics: snapshot
           ? {
               barCount: snapshot.barCount,
-              values: Object.fromEntries(Object.entries(snapshot.m).map(([k, v]) => [k, v[0]])),
-              history: snapshot.m,
+              values: Object.fromEntries(METRIC_IDS.map((id) => [id, metricValue(snapshot, id)])),
+              history: metricsToObject(snapshot),
             }
           : null,
         freshness: { ...provider.freshness, asOf: last.t },

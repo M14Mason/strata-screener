@@ -12,7 +12,20 @@ import { LOOKBACK_BARS, buildSnapshot, type SymbolSnapshot } from "./snapshot";
  * looks like -- cost array lookups rather than a full recompute. Bars
  * themselves are cached to disk by the provider layer, so a restart is cheap
  * too.
+ *
+ * Snapshots are built in chunks rather than fetching every symbol's bars up
+ * front. Raw bars are roughly half the memory of a scan and are dead weight the
+ * moment the snapshot is built, so holding all of them at once put a
+ * whole-universe scan over 700MB and out of memory on a small instance.
+ * Chunking caps peak usage at one chunk of bars plus the snapshots themselves.
  */
+
+/**
+ * Symbols whose bars are held in memory at once while building snapshots.
+ * Large enough that a bulk provider endpoint is still used efficiently, small
+ * enough that the bars never dominate the heap.
+ */
+const BUILD_CHUNK = 400;
 
 interface Entry {
   snapshot: SymbolSnapshot | null;
@@ -75,9 +88,13 @@ export async function getSnapshots(
     }
   }
 
-  if (need.length) {
-    const bars = await provider.getHistoricalPricesBatch(need, LOOKBACK_BARS, onProgress);
-    for (const symbol of need) {
+  for (let start = 0; start < need.length; start += BUILD_CHUNK) {
+    const chunk = need.slice(start, start + BUILD_CHUNK);
+    const bars = await provider.getHistoricalPricesBatch(chunk, LOOKBACK_BARS, (done, total) =>
+      onProgress?.(start + done, need.length)
+    );
+
+    for (const symbol of chunk) {
       const series = bars.get(symbol);
       const listing: Listing = getListing(symbol) ?? {
         symbol,
@@ -90,6 +107,11 @@ export async function getSnapshots(
       if (snapshot) snapshots.push(snapshot);
       else missing.push(symbol);
     }
+
+    // Drop this chunk's bars before the next fetch so they can be collected
+    // rather than accumulating across the whole universe.
+    bars.clear();
+    onProgress?.(Math.min(start + chunk.length, need.length), need.length);
   }
 
   return { snapshots, missing, cached };

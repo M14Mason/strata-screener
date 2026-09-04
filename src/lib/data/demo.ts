@@ -65,12 +65,37 @@ function tradingDays(endMs: number, count: number): number[] {
   return out.reverse();
 }
 
+/**
+ * Small LRU of generated bars.
+ *
+ * Generation is deterministic, so a cache only saves recomputation -- it is not
+ * needed for correctness. An unbounded one held every symbol's bars for the
+ * life of the process, which is ~200MB across the full universe and is dead
+ * weight once snapshots are built. A small cache keeps the stock page and
+ * repeated single-symbol lookups fast without that cost.
+ */
+const BAR_CACHE_LIMIT = 256;
 const barCache = new Map<string, Bar[]>();
+
+function cacheBars(key: string, bars: Bar[]): Bar[] {
+  barCache.set(key, bars);
+  if (barCache.size > BAR_CACHE_LIMIT) {
+    // Map preserves insertion order, so the first key is the oldest.
+    const oldest = barCache.keys().next().value;
+    if (oldest !== undefined) barCache.delete(oldest);
+  }
+  return bars;
+}
 
 function generate(symbol: string, profile: Profile, lookback: number, isEtf = false): Bar[] {
   const cacheKey = `${symbol}:${lookback}:${isEtf ? 1 : 0}`;
   const hit = barCache.get(cacheKey);
-  if (hit) return hit;
+  if (hit) {
+    // Refresh recency so the LRU keeps what is actually being used.
+    barCache.delete(cacheKey);
+    barCache.set(cacheKey, hit);
+    return hit;
+  }
 
   const rand = rng(hashSeed(symbol));
   const cap = profile.marketCap ?? 0;
@@ -143,8 +168,7 @@ function generate(symbol: string, profile: Profile, lookback: number, isEtf = fa
     prevClose = close;
   }
 
-  barCache.set(cacheKey, bars);
-  return bars;
+  return cacheBars(cacheKey, bars);
 }
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);

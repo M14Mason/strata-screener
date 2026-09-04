@@ -16,6 +16,10 @@ primary_region = "iad"          # close to US market data sources
   # Unset MARKET_DATA_PROVIDER on purpose: the app uses the prebuilt dataset if
   # one was baked into the image, and clearly-labelled demo data otherwise.
   NODE_ENV = "production"
+  # A whole-universe scan peaks around 135MB of JS heap plus ~105MB of typed
+  # arrays. Node's default old-space cap is derived from container memory and
+  # landed near 500MB here, which was too tight once Next.js is also resident.
+  NODE_OPTIONS = "--max-old-space-size=1536"
 
 [http_service]
   internal_port = 3000
@@ -39,7 +43,7 @@ primary_region = "iad"          # close to US market data sources
     path = "/api/health"
 
 [[vm]]
-  # A whole-universe scan builds ~6,000 indicator snapshots, so memory matters
-  # more than cores here.
+  # A whole-universe scan builds ~6,000 indicator snapshots. Memory matters more
+  # than cores: measured peak RSS is ~430MB, so 2GB leaves comfortable headroom.
   size = "shared-cpu-1x"
-  memory = "1gb"
+  memory = "2gb"

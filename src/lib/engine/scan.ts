@@ -6,7 +6,7 @@ import type { DataFreshness, Listing, Sector } from "@/lib/data/types";
 import { MARKET_CAP_TIERS, type BasicFilters, type MarketCapTier, type ScreenRequest, type UniverseSpec } from "./filters";
 import { evaluateRules, validateRuleNode, type ConditionResult, type RuleGroup, type TraceNode } from "./rules";
 import { getSnapshots } from "./store";
-import type { SymbolSnapshot } from "./snapshot";
+import { metricValue, type SymbolSnapshot } from "./snapshot";
 
 /**
  * Scan orchestration.
@@ -122,20 +122,20 @@ function passesReferenceFilters(symbol: string, filters: BasicFilters): boolean 
 
 /** Filters that need the snapshot's price and indicator values. */
 function passesPriceFilters(snap: SymbolSnapshot, filters: BasicFilters, universe: UniverseSpec): boolean {
-  const price = snap.m.close[0];
+  const price = metricValue(snap, "close");
   if (price == null) return false;
 
   if (universe.excludePenny && price < universe.pennyThreshold) return false;
   if (filters.priceMin != null && price < filters.priceMin) return false;
   if (filters.priceMax != null && price > filters.priceMax) return false;
 
-  const volume = snap.m.volume[0];
+  const volume = metricValue(snap, "volume");
   if (filters.volumeMin != null && (volume == null || volume < filters.volumeMin)) return false;
 
-  const avgVol = snap.m.avgVol20[0];
+  const avgVol = metricValue(snap, "avgVol20");
   if (filters.avgVolumeMin != null && (avgVol == null || avgVol < filters.avgVolumeMin)) return false;
 
-  const dollarVol = snap.m.dollarVol20[0];
+  const dollarVol = metricValue(snap, "dollarVol20");
   if (filters.dollarVolumeMin != null && (dollarVol == null || dollarVol < filters.dollarVolumeMin)) return false;
 
   if (filters.betaMin != null && (snap.beta == null || snap.beta < filters.betaMin)) return false;
@@ -156,7 +156,7 @@ function passesPriceFilters(snap: SymbolSnapshot, filters: BasicFilters, univers
 }
 
 function toRow(snap: SymbolSnapshot, reasons: ConditionResult[], trace: TraceNode | null): ResultRow {
-  const m = snap.m;
+  const m = (id: string) => metricValue(snap, id);
   return {
     symbol: snap.symbol,
     name: snap.name,
@@ -164,24 +164,24 @@ function toRow(snap: SymbolSnapshot, reasons: ConditionResult[], trace: TraceNod
     sector: snap.sector,
     industry: snap.industry,
     isEtf: snap.isEtf,
-    price: m.close[0],
-    changePct: m.changePct[0],
-    volume: m.volume[0],
-    avgVolume: m.avgVol20[0],
-    relVolume: m.relVolume[0],
-    dollarVolume: m.dollarVol20[0],
+    price: m("close"),
+    changePct: m("changePct"),
+    volume: m("volume"),
+    avgVolume: m("avgVol20"),
+    relVolume: m("relVolume"),
+    dollarVolume: m("dollarVol20"),
     marketCap: snap.marketCap,
-    rsi2: m.rsi2[0],
-    rsi14: m.rsi14[0],
-    sma20: m.sma20[0],
-    sma50: m.sma50[0],
-    sma200: m.sma200[0],
-    distSma50: m.distSma50[0],
-    distSma200: m.distSma200[0],
-    pctFrom52High: m.pctFrom52High[0],
-    atrPct: m.atrPct[0],
-    adx: m.adx14[0],
-    mom20: m.mom20[0],
+    rsi2: m("rsi2"),
+    rsi14: m("rsi14"),
+    sma20: m("sma20"),
+    sma50: m("sma50"),
+    sma200: m("sma200"),
+    distSma50: m("distSma50"),
+    distSma200: m("distSma200"),
+    pctFrom52High: m("pctFrom52High"),
+    atrPct: m("atrPct"),
+    adx: m("adx14"),
+    mom20: m("mom20"),
     beta: snap.beta,
     peRatio: snap.peRatio,
     eps: snap.eps,

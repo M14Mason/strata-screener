@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getProvider } from "@/lib/data/provider";
 import { getSnapshots } from "@/lib/engine/store";
+import { metricSeries, metricValue } from "@/lib/engine/snapshot";
 import { allListings, getProfile } from "@/lib/data/reference";
 import type { Sector } from "@/lib/data/types";
 import { SECTORS } from "@/lib/data/types";
@@ -31,11 +32,16 @@ export async function GET() {
       return {
         symbol: b.symbol,
         label: b.label,
-        price: snap?.m.close[0] ?? null,
-        changePct: snap?.m.changePct[0] ?? null,
-        mom20: snap?.m.mom20[0] ?? null,
-        aboveSma200: snap ? (snap.m.close[0] ?? 0) > (snap.m.sma200[0] ?? Infinity) : null,
-        sparkline: snap ? [...snap.m.close].slice(0, 22).reverse().filter((v): v is number => v != null) : [],
+        price: snap ? metricValue(snap, "close") : null,
+        changePct: snap ? metricValue(snap, "changePct") : null,
+        mom20: snap ? metricValue(snap, "mom20") : null,
+        aboveSma200: snap ? (metricValue(snap, "close") ?? 0) > (metricValue(snap, "sma200") ?? Infinity) : null,
+        sparkline: snap
+          ? Array.from(metricSeries(snap, "close") ?? [])
+              .slice(0, 22)
+              .reverse()
+              .filter((v) => Number.isFinite(v))
+          : [],
       };
     });
 
@@ -61,16 +67,16 @@ export async function GET() {
     const sectorTotals = new Map<Sector, { sum: number; n: number }>();
 
     for (const snap of snapshots) {
-      const change = snap.m.changePct[0];
-      const close = snap.m.close[0];
+      const change = metricValue(snap, "changePct");
+      const close = metricValue(snap, "close");
       if (change == null || close == null) continue;
       counted++;
       if (change > 0) advancing++;
       else if (change < 0) declining++;
-      if ((snap.m.sma200[0] ?? Infinity) < close) aboveSma200++;
-      if ((snap.m.sma50[0] ?? Infinity) < close) aboveSma50++;
-      if (snap.m.newHigh52[0] === 1) newHighs++;
-      if (snap.m.newLow52[0] === 1) newLows++;
+      if ((metricValue(snap, "sma200") ?? Infinity) < close) aboveSma200++;
+      if ((metricValue(snap, "sma50") ?? Infinity) < close) aboveSma50++;
+      if (metricValue(snap, "newHigh52") === 1) newHighs++;
+      if (metricValue(snap, "newLow52") === 1) newLows++;
 
       if (snap.sector) {
         const bucket = sectorTotals.get(snap.sector) ?? { sum: 0, n: 0 };

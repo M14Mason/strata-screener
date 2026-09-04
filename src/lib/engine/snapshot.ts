@@ -24,6 +24,13 @@ import {
  * the same code builds snapshots during a scan and can derive chart overlays in
  * the browser.
  *
+ * Metric values are packed into one Float64Array per symbol rather than a
+ * dictionary of JS arrays. With ~65 metrics that is 65 fewer objects and one
+ * fewer level of indirection per symbol, which across the full universe is the
+ * difference between a scan that fits in a small instance's heap and one that
+ * does not. `NaN` stands in for "not available", so the buffer needs no
+ * parallel presence mask.
+ *
  * This is what makes a whole-universe scan fast (requirement 33): the heavy
  * indicator maths runs once per symbol on the server, and evaluating a
  * strategy against 6,000 snapshots is then just array lookups and comparisons.
@@ -45,6 +52,39 @@ export const EMA_PERIODS = [5, 10, 20, 50, 100, 200] as const;
 export const RSI_PERIODS = [2, 3, 5, 7, 9, 14, 21] as const;
 export const MOMENTUM_PERIODS = [1, 5, 10, 20, 50, 63, 126, 252] as const;
 
+/**
+ * Every metric `buildSnapshot` produces, in a fixed order.
+ *
+ * The order defines the memory layout, so entries are only ever appended --
+ * never reordered or removed -- and `METRIC_INDEX` is the only way to map an id
+ * to its slot.
+ */
+export const METRIC_IDS: string[] = [
+  "close", "open", "high", "low", "volume",
+  ...SMA_PERIODS.map((p) => `sma${p}`),
+  ...EMA_PERIODS.map((p) => `ema${p}`),
+  ...RSI_PERIODS.map((p) => `rsi${p}`),
+  "macd", "macdSignal", "macdHist",
+  "bbUpper", "bbMiddle", "bbLower", "bbWidth", "bbPercentB",
+  "atr14", "atrPct",
+  "adx14", "diPlus", "diMinus",
+  "stochK", "stochD",
+  "vwap20",
+  ...MOMENTUM_PERIODS.map((p) => `mom${p}`),
+  "changePct",
+  "avgVol20", "avgVol50", "dollarVol20", "relVolume",
+  "high52", "low52", "pctFrom52High", "pctFrom52Low",
+  "newHigh52", "newLow52",
+  "gapPct",
+  "upDays", "downDays",
+  "higherHigh", "higherLow", "lowerHigh", "lowerLow",
+  "distSma20", "distSma50", "distSma200", "distVwap20",
+];
+
+/** Null-prototype so a crafted metric id cannot resolve to Object.prototype. */
+export const METRIC_INDEX: Record<string, number> = Object.create(null);
+METRIC_IDS.forEach((id, i) => (METRIC_INDEX[id] = i));
+
 export interface SymbolSnapshot {
   symbol: string;
   name: string;
@@ -61,14 +101,22 @@ export interface SymbolSnapshot {
   barCount: number;
   /** Timestamp of the most recent bar. */
   asOf: number;
-  /** metric id -> trailing values, newest first. */
-  m: Record<string, (number | null)[]>;
   /**
-   * Recent closes, oldest first. Retained so custom indicator periods the user
-   * types in the builder (say RSI(4) or SMA(63)) can be computed on demand
-   * instead of precomputing every period for every symbol.
+   * Packed metric values: METRIC_IDS.length blocks of HISTORY_DAYS, newest
+   * first within each block. NaN means "not available".
    */
-  closes: number[];
+  values: Float64Array;
+  /**
+   * Custom indicator periods the user typed in the builder (say RSI(4)),
+   * computed on demand and memoised here rather than precomputed for every
+   * symbol. Absent until something asks for one.
+   */
+  extra?: Map<string, Float64Array>;
+  /**
+   * Recent closes, oldest first. Retained so those custom periods can be
+   * derived without going back to the provider.
+   */
+  closes: Float64Array;
 }
 
 /** Reverse a chronological series into "newest first", trimmed to HISTORY_DAYS. */
@@ -77,6 +125,37 @@ function trail(series: Series, days = HISTORY_DAYS): (number | null)[] {
   for (let i = 0; i < days; i++) {
     const idx = series.length - 1 - i;
     out.push(idx >= 0 ? series[idx] : null);
+  }
+  return out;
+}
+
+/** Read one packed metric value. Returns null for NaN / unknown ids. */
+export function metricValue(snap: SymbolSnapshot, id: string, offset = 0): number | null {
+  if (offset < 0 || offset >= HISTORY_DAYS) return null;
+  const slot = METRIC_INDEX[id];
+  if (slot !== undefined) {
+    const v = snap.values[slot * HISTORY_DAYS + offset];
+    return Number.isNaN(v) ? null : v;
+  }
+  const custom = snap.extra?.get(id);
+  if (!custom) return null;
+  const v = custom[offset];
+  return Number.isNaN(v) ? null : v;
+}
+
+/** The trailing block for one metric, or null when the id is unknown. */
+export function metricSeries(snap: SymbolSnapshot, id: string): Float64Array | null {
+  const slot = METRIC_INDEX[id];
+  if (slot !== undefined) return snap.values.subarray(slot * HISTORY_DAYS, (slot + 1) * HISTORY_DAYS);
+  return snap.extra?.get(id) ?? null;
+}
+
+/** Plain-object view of every metric, for JSON responses. */
+export function metricsToObject(snap: SymbolSnapshot): Record<string, (number | null)[]> {
+  const out: Record<string, (number | null)[]> = {};
+  for (const id of METRIC_IDS) {
+    const series = metricSeries(snap, id);
+    out[id] = series ? Array.from(series, (v) => (Number.isNaN(v) ? null : v)) : [];
   }
   return out;
 }
@@ -215,7 +294,20 @@ export function buildSnapshot(input: SnapshotInput): SymbolSnapshot | null {
   m.distSma200 = distanceSeries(m.close, m.sma200);
   m.distVwap20 = distanceSeries(m.close, m.vwap20);
 
-  const price = c[c.length - 1];
+  // Pack the metric dictionary built above into one contiguous buffer, then
+  // let the dictionary go. Everything downstream reads through metricValue.
+  const values = new Float64Array(METRIC_IDS.length * HISTORY_DAYS);
+  values.fill(NaN);
+  for (let slot = 0; slot < METRIC_IDS.length; slot++) {
+    const series = m[METRIC_IDS[slot]];
+    if (!series) continue;
+    const base = slot * HISTORY_DAYS;
+    for (let i = 0; i < HISTORY_DAYS; i++) {
+      const v = series[i];
+      if (v != null && Number.isFinite(v)) values[base + i] = v;
+    }
+  }
+
   const marketCap = profile.marketCap;
 
   return {
@@ -232,16 +324,9 @@ export function buildSnapshot(input: SnapshotInput): SymbolSnapshot | null {
     dividendYield: input.dividendYield ?? null,
     barCount: bars.length,
     asOf: bars[bars.length - 1].t,
-    m,
-    closes: c.slice(-CUSTOM_PERIOD_CLOSES),
+    values,
+    closes: Float64Array.from(c.slice(-CUSTOM_PERIOD_CLOSES)),
   };
-}
-
-/** Convenience accessor used by the rule evaluator. */
-export function metricAt(snap: SymbolSnapshot, id: string, offset = 0): number | null {
-  const series = snap.m[id];
-  if (!series) return null;
-  return series[offset] ?? null;
 }
 
 export { div };

@@ -5,6 +5,7 @@ import { PRESET_STRATEGIES } from "../src/lib/engine/presets";
 import { emptyScreen } from "../src/lib/engine/filters";
 import { getSnapshot } from "../src/lib/engine/store";
 import { evaluateRules } from "../src/lib/engine/rules";
+import { metricValue } from "../src/lib/engine/snapshot";
 
 function pass(label: string, ok: boolean, extra = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}${extra ? "  " + extra : ""}`);
@@ -165,7 +166,7 @@ const rising = await runScan({ ...base, rules: R([C({ field: "sma", period: 50, 
 let risingOk = true;
 for (const row of rising.rows.slice(0, 20)) {
   const snap = (await getSnapshot(row.symbol))!;
-  if (!(snap.m.sma50[0]! > snap.m.sma50[1]!)) risingOk = false;
+  if (!(metricValue(snap, "sma50", 0)! > metricValue(snap, "sma50", 1)!)) risingOk = false;
 }
 pass("rising means today > yesterday", risingOk, `n=${rising.meta.matches}`);
 
