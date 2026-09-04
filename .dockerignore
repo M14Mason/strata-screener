@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.github
+.cache
+.env
+.env*.local
+.vercel
+*.tsbuildinfo
+README.md

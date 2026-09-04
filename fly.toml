@@ -1,0 +1,45 @@
+# Fly.io deployment.
+#
+# Fly runs a long-lived process, which is what this app wants: the indicator
+# snapshot cache lives in memory, so the first scan warms it and every scan
+# afterwards is milliseconds. A serverless host would rebuild that cache on
+# every cold start.
+
+app = "strata-screener"
+primary_region = "iad"          # close to US market data sources
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  # Unset MARKET_DATA_PROVIDER on purpose: the app uses the prebuilt dataset if
+  # one was baked into the image, and clearly-labelled demo data otherwise.
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # Zero idle machines keeps a hobby deployment free; the first request after
+  # an idle period pays a short wake-up.
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 40
+    hard_limit = 80
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health"
+
+[[vm]]
+  # A whole-universe scan builds ~6,000 indicator snapshots, so memory matters
+  # more than cores here.
+  size = "shared-cpu-1x"
+  memory = "1gb"
