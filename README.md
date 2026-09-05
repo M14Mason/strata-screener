@@ -16,8 +16,9 @@ predictions. Nothing in it is investment advice.
 
 ---
 
-> **The data is real.** Prices come from Nasdaq's public historical-prices
-> endpoint — split-adjusted daily bars, no API key — verified against an
+> **The live instance runs on real market data** — a prebuilt end-of-day dataset
+> covering the most liquid U.S. stocks, rebuilt nightly. Prices come from
+> Nasdaq's public historical-prices endpoint — split-adjusted daily bars, no API key — verified against an
 > independent vendor to the cent (see [Data](#market-data)). Symbols, company
 > names, exchanges, sectors and market caps are real too. Demo data still ships
 > for offline development and tests, but it is opt-in and badged DEMO DATA
