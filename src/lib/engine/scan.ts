@@ -1,6 +1,6 @@
 import "server-only";
 import { getProvider } from "@/lib/data/provider";
-import { allListings, getProfile } from "@/lib/data/reference";
+import { getProfile } from "@/lib/data/reference";
 import { demoBeta } from "@/lib/data/demo";
 import type { DataFreshness, Listing, Sector } from "@/lib/data/types";
 import { MARKET_CAP_TIERS, type BasicFilters, type MarketCapTier, type ScreenRequest, type UniverseSpec } from "./filters";
@@ -317,7 +317,11 @@ export async function runScan(
   const provider = getProvider();
   const isDemo = provider.id === "demo";
 
-  const listings = allListings();
+  // Ask the provider what it can actually serve rather than assuming the whole
+  // bundled listing file. A prebuilt dataset covers a defined set of symbols,
+  // and counting the rest as "eligible" would report thousands of phantom
+  // misses on every scan.
+  const listings = await provider.getUniverse();
   const watchlist = request.universe.symbols?.length ? new Set(request.universe.symbols) : null;
 
   // Stage 1 - reference-only filtering. No network, no indicator maths.

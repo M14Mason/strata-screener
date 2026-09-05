@@ -55,6 +55,7 @@ export default function ScreenerClient() {
   const [loadedLabel, setLoadedLabel] = useState<string | null>(null);
   const inflight = useRef<AbortController | null>(null);
   const hydrated = useRef(false);
+  const scanButtonVisible = useHideOnScrollDown();
 
   const rules = screen.rules ?? { kind: "group", id: "root", logic: "all", children: [] };
   const conditionCount = countConditions(rules);
@@ -425,15 +426,22 @@ export default function ScreenerClient() {
         />
       </Sheet>
 
-      {/* Sticky scan button on phones (requirement 28). */}
+      {/* Floating scan button on phones (requirement 28).
+          It hides while the user scrolls down through results, so it stops
+          sitting on top of the rows they are reading, and comes back the moment
+          they scroll up or stop. */}
       <div
         className="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 xl:hidden"
         style={{ bottom: "calc(var(--bottom-nav-space) + 10px)" }}
       >
         <motion.button
-          className="btn btn-primary pointer-events-auto !rounded-full !px-5 !py-3 text-[14px]"
+          className={`btn btn-primary !rounded-full !px-5 !py-3 text-[14px] ${scanButtonVisible ? "pointer-events-auto" : "pointer-events-none"}`}
           style={{ boxShadow: "var(--shadow-pop)" }}
           whileTap={{ scale: 0.96 }}
+          animate={{ opacity: scanButtonVisible ? 1 : 0, y: scanButtonVisible ? 0 : 24 }}
+          aria-hidden={!scanButtonVisible}
+          tabIndex={scanButtonVisible ? 0 : -1}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
           onClick={() => scan(screen)}
           disabled={status === "scanning"}
         >
@@ -484,6 +492,42 @@ export default function ScreenerClient() {
       </Sheet>
     </div>
   );
+}
+
+/**
+ * True unless the user is actively scrolling down.
+ *
+ * A floating action button that sits permanently over a scrolling list covers
+ * the very rows the list exists to show. Hiding it on downward scroll and
+ * restoring it on upward scroll or at rest keeps it reachable without it
+ * obscuring content.
+ */
+function useHideOnScrollDown(threshold = 6): boolean {
+  const [visible, setVisible] = useState(true);
+  const lastY = useRef(0);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    lastY.current = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const delta = y - lastY.current;
+      if (Math.abs(delta) > threshold) {
+        setVisible(delta < 0 || y < 40);
+        lastY.current = y;
+      }
+      // Bring it back once scrolling stops, so it is never stuck hidden.
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      idleTimer.current = setTimeout(() => setVisible(true), 550);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, [threshold]);
+
+  return visible;
 }
 
 /** Shared between the desktop rail and the mobile sheet so they cannot diverge. */
