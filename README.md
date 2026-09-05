@@ -16,13 +16,12 @@ predictions. Nothing in it is investment advice.
 
 ---
 
-> **A note on the data you are looking at.** The live instance runs on
-> **simulated** prices, badged DEMO DATA on every screen, because there is no
-> reliable keyless source of bulk U.S. market data — see
-> [Getting real market data](#getting-real-market-data-onto-a-deployed-instance).
-> The symbols, company names, exchanges, sectors and market caps *are* real. The
-> indicator maths is verified against real market data and an independent
-> vendor's computation (`npm run test:real`).
+> **The data is real.** Prices come from Nasdaq's public historical-prices
+> endpoint — split-adjusted daily bars, no API key — verified against an
+> independent vendor to the cent (see [Data](#market-data)). Symbols, company
+> names, exchanges, sectors and market caps are real too. Demo data still ships
+> for offline development and tests, but it is opt-in and badged DEMO DATA
+> wherever it appears.
 
 ## Quick start
 
@@ -113,16 +112,31 @@ labelled as simulated everywhere it appears.
 
 | id | Key | Use it for |
 | --- | --- | --- |
-| `bundle` | none at runtime | **Deployed instances.** Reads a prebuilt EOD dataset from disk. No network at request time. |
-| `demo` | none | Local exploration and any deployment without a key. Deterministic synthetic prices, always badged DEMO DATA. |
-| `yahoo` | none | Local use only. Real delayed bars, but rate-limits shared server IPs hard. |
-| `polygon` | `POLYGON_API_KEY` | Live end-of-day data, and the source the dataset builder uses. |
+| `bundle` | none | **Deployed instances.** Reads a prebuilt EOD dataset from disk. No network at request time. |
+| `nasdaq` | none | **Real prices with no key.** Split-adjusted daily bars from Nasdaq's public endpoint. The default when no dataset is installed. |
+| `demo` | none | Offline development and the test suite. Deterministic synthetic prices, always badged DEMO DATA. Opt-in only. |
+| `yahoo` | none | Real delayed bars, but rate-limits shared server IPs hard. Local use only. |
+| `polygon` | `POLYGON_API_KEY` | Live end-of-day data; the cheapest source for building a dataset if you have a key. |
 | `tiingo` | `TIINGO_API_KEY` | Live adjusted end-of-day data. Per-symbol, so full-universe scans are slower. |
 
 Set `MARKET_DATA_PROVIDER` to pick one. Leave it unset and the app uses a
-prebuilt dataset if one is installed, and demo data otherwise — so a host that
-ran the pipeline serves real numbers automatically, and one that did not still
-boots into a working app instead of an error page.
+prebuilt dataset if one is installed and real Nasdaq bars otherwise — demo data
+is never a silent fallback, so nobody looks at simulated prices by accident.
+
+#### How the Nasdaq source was verified
+
+Against an independent vendor's split-adjusted series over 317 overlapping AAPL
+sessions:
+
+- **316 of 317 closes matched to the cent.** The one exception differed by $0.13.
+- Three sessions differed in volume by 0.4–2.2%, which is the ordinary
+  consolidated-tape versus primary-exchange distinction, not an error.
+- **No split discontinuity** across 566 NVDA sessions spanning its 10:1 split —
+  pre-split closes read ~$121, not ~$1,210 — confirming the series is
+  split-adjusted. It is not dividend-adjusted, which is the same basis Finviz and
+  most screeners use.
+- About three years of daily history, covering NYSE, NASDAQ and AMEX, plus ETFs
+  through a separate asset class.
 
 ### The reference layer is real regardless of provider
 
@@ -132,7 +146,12 @@ bundled and provider-independent, sourced from two public non-price feeds:
 - [Nasdaq Trader symbol directory](https://www.nasdaqtrader.com/dynamic/SymDir/) —
   11,939 listings (6,312 common stocks, 5,627 ETFs) across NYSE, NASDAQ and AMEX.
 - Nasdaq's public stock-screener download — sector, industry, market cap, country
-  and IPO year for 6,697 symbols.
+  and IPO year.
+
+Two defects were found and fixed here: dotted class shares (`BRK.B`, `BF.A`) were
+being rejected outright, losing 23 real common stocks, and the instrument-name
+filter matched "warrant" but not "Warrants", so several hundred warrants, rights
+and units were being screened as if they were operating companies.
 
 Refresh with `npm run data:universe && npm run data:profiles`.
 
@@ -150,6 +169,9 @@ Requirements the app enforces structurally, not by convention:
   naming the provider. Never defaulted to zero, never quietly dropped.
 - A ticker that is not a real U.S. listing returns 404 rather than a page of
   plausible-looking generated numbers.
+- Data more than three trading sessions old is flagged amber in the badge and
+  banner, counted in trading days so a Friday close read on Monday is not
+  mislabelled as stale.
 
 ---
 
