@@ -17,7 +17,7 @@ predictions. Nothing in it is investment advice.
 ---
 
 > **The live instance runs on real market data** — a prebuilt end-of-day dataset
-> covering the most liquid U.S. stocks, rebuilt nightly. Prices come from
+> of **3,171 U.S. listings × 320 sessions**, rebuilt nightly. Prices come from
 > Nasdaq's public historical-prices endpoint — split-adjusted daily bars, no API key — verified against an
 > independent vendor to the cent (see [Data](#market-data)). Symbols, company
 > names, exchanges, sectors and market caps are real too. Demo data still ships
