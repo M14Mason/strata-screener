@@ -77,13 +77,20 @@ export interface ScanResponse {
 const num = (v: unknown): number | undefined =>
   typeof v === "number" && Number.isFinite(v) ? v : undefined;
 
-/** Hard ceiling on symbols per scan, so one request cannot pin the server. */
+/**
+ * Hard ceiling on symbols per scan, so one request cannot pin the server.
+ *
+ * The cap exists to bound *network* cost, so providers that read locally are
+ * not subject to it: the prebuilt dataset and the synthetic generator both
+ * serve the whole universe from memory, and capping them would silently drop
+ * symbols the user can see in the dataset.
+ */
+const LOCAL_PROVIDERS = new Set(["demo", "bundle"]);
+
 function scanCap(providerId: string): number {
   const fromEnv = Number(process.env.SCAN_MAX_SYMBOLS);
   if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
-  // Synthetic data is generated locally, so the whole universe is affordable.
-  // Network providers pay a request per symbol, so they get a smaller default.
-  return providerId === "demo" ? 20_000 : 1_200;
+  return LOCAL_PROVIDERS.has(providerId) ? 20_000 : 1_200;
 }
 
 function matchesUniverse(listing: Listing, spec: UniverseSpec, watchlist: Set<string> | null): boolean {
