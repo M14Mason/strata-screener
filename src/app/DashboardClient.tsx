@@ -8,7 +8,7 @@ import { fmtPct, fmtPrice, moveClass } from "@/lib/client/format";
 import { PRESET_STRATEGIES } from "@/lib/engine/presets";
 import { countConditions, summarizeRules } from "@/lib/engine/rules";
 import { useStore } from "@/lib/client/store";
-import { DataBadge, DemoBanner } from "@/components/DataBadge";
+import { DataBadge, DemoBanner, StaleBanner } from "@/components/DataBadge";
 import { Sparkline } from "@/components/Sparkline";
 import { EmptyState, Skeleton } from "@/components/ui/Primitives";
 import { IconPlay, IconScreener, IconStrategy, IconWarn } from "@/components/ui/Icons";
@@ -34,6 +34,7 @@ export default function DashboardClient() {
   return (
     <div className="flex flex-col gap-5 px-4 py-4 md:px-6 md:py-5">
       <DemoBanner freshness={market?.freshness ?? null} />
+      <StaleBanner freshness={market?.freshness ?? null} />
 
       <section>
         <div className="mb-2.5 flex items-baseline justify-between gap-3">

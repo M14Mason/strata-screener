@@ -8,7 +8,7 @@ import type { ResultRow } from "@/lib/engine/scan";
 import { emptyScreen } from "@/lib/engine/filters";
 import { useStore, type Watchlist } from "@/lib/client/store";
 import { NA, fmtCompact, fmtNum, fmtPct, fmtPrice, moveClass } from "@/lib/client/format";
-import { DataBadge, DemoBanner, type Freshness } from "@/components/DataBadge";
+import { DataBadge, DemoBanner, StaleBanner, type Freshness } from "@/components/DataBadge";
 import { ConfirmButton, EmptyState, Field, Sheet, Skeleton } from "@/components/ui/Primitives";
 import { IconClose, IconPlus, IconScreener, IconSearch, IconTrash, IconWatchlist } from "@/components/ui/Icons";
 
@@ -63,6 +63,7 @@ export default function WatchlistsClient() {
   return (
     <div className="flex flex-col gap-4 px-4 py-4 md:px-6 md:py-5">
       <DemoBanner freshness={freshness} />
+      <StaleBanner freshness={freshness} />
 
       {!ready ? null : watchlists.length === 0 ? (
         <div className="card">

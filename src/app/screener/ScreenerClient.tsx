@@ -9,7 +9,7 @@ import { QUICK_SCREENS, PRESET_STRATEGIES, clonePresetRules } from "@/lib/engine
 import type { ScanResponse } from "@/lib/engine/scan";
 import { DEFAULT_COLUMNS, defaultScreen, newId, useCopied, useStore } from "@/lib/client/store";
 import { downloadText, runScreen } from "@/lib/client/api";
-import { DataBadge, DemoBanner } from "@/components/DataBadge";
+import { DataBadge, DemoBanner, StaleBanner } from "@/components/DataBadge";
 import { FilterPanel } from "@/components/screener/FilterPanel";
 import { RuleBuilder } from "@/components/screener/RuleBuilder";
 import { ResultsTable } from "@/components/screener/ResultsTable";
@@ -230,6 +230,7 @@ export default function ScreenerClient() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-col gap-3 px-4 pb-3 pt-4 md:px-6">
           <DemoBanner freshness={meta?.freshness ?? null} />
+      <StaleBanner freshness={meta?.freshness ?? null} />
 
           {/* quick screens (requirement 22) */}
           <div className="-mx-4 overflow-x-auto px-4 md:-mx-6 md:px-6">

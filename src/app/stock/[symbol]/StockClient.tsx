@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { fetchStock, type StockResponse } from "@/lib/client/api";
 import { NA, fmtCompact, fmtNum, fmtPct, fmtPrice, moveClass } from "@/lib/client/format";
-import { DataBadge, DemoBanner } from "@/components/DataBadge";
+import { DataBadge, DemoBanner, StaleBanner } from "@/components/DataBadge";
 import { CandleChart, OVERLAY_OPTIONS, PANE_OPTIONS, type OverlayId, type PaneId } from "@/components/stock/CandleChart";
 import { Fundamentals } from "@/components/stock/Fundamentals";
 import { AddToWatchlist } from "@/components/stock/AddToWatchlist";
@@ -110,6 +110,7 @@ export default function StockClient({ symbol }: { symbol: string }) {
   return (
     <div className="flex flex-col gap-4 px-4 py-4 md:px-6 md:py-5">
       <DemoBanner freshness={freshness} />
+      <StaleBanner freshness={freshness} />
 
       {/* ------------------------------------------------------------ header */}
       <header className="card px-4 py-4 md:px-5">

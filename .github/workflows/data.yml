@@ -1,12 +1,14 @@
-# Builds the end-of-day dataset the hosted app serves from, once per weekday
+# Builds the end-of-day dataset the hosted app serves from, each weekday
 # evening, and publishes it as a release asset.
+#
+# No secrets required: the default source is Nasdaq's public historical-prices
+# endpoint, which needs no API key. Set a POLYGON_API_KEY secret and switch the
+# source input to "polygon" if you have a key and want the cheaper grouped feed.
 #
 # The dataset is deliberately not committed: it is tens of megabytes and is
 # rewritten daily, so committing it would grow the repository without bound.
-# Publishing it as a release asset keeps the repo small and gives the build a
-# stable URL to pull from.
-#
-# Requires a repository secret POLYGON_API_KEY (free tier is enough).
+# Publishing it as a release asset keeps the repo small and gives the app's
+# build a stable URL to pull from.
 name: Build EOD dataset
 
 on:
@@ -20,15 +22,27 @@ on:
         default: "320"
       max_symbols:
         description: "Cap on symbols (0 = every listing)"
-        default: "2500"
+        default: "2000"
+      source:
+        description: "nasdaq (no key) or polygon (needs POLYGON_API_KEY)"
+        default: "nasdaq"
+      delay:
+        description: "Milliseconds between requests per worker"
+        default: "700"
 
 permissions:
   contents: write
 
+concurrency:
+  group: eod-dataset
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # Nasdaq's endpoint blocks an IP that requests too fast, so the build is
+    # paced. A full run is hours, not minutes, and that is expected.
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
 
@@ -39,25 +53,32 @@ jobs:
 
       - run: npm ci
 
-      # Past sessions never change, so the per-day responses are cached between
-      # runs. A daily run then costs one new API request instead of ~320.
-      - name: Restore session cache
+      # Per-symbol bars are cached between runs, so a daily rebuild only has to
+      # fetch what changed rather than the whole universe again.
+      - name: Restore price cache
         uses: actions/cache@v4
         with:
-          path: .cache/grouped
-          key: polygon-grouped-${{ github.run_id }}
-          restore-keys: polygon-grouped-
+          path: |
+            .cache/nasdaq-bars
+            .cache/grouped
+          key: eod-prices-${{ github.run_id }}
+          restore-keys: eod-prices-
 
       - name: Build dataset
         env:
           POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
           POLYGON_RATE_LIMIT: ${{ vars.POLYGON_RATE_LIMIT || '5' }}
         run: |
-          npx tsx scripts/build-bundle.mts \
-            --sessions ${{ github.event.inputs.sessions || '320' }} \
-            --max-symbols ${{ github.event.inputs.max_symbols || '2500' }}
+          npx tsx --conditions react-server scripts/build-bundle.mts \
+            --source "${{ github.event.inputs.source || 'nasdaq' }}" \
+            --sessions "${{ github.event.inputs.sessions || '320' }}" \
+            --max-symbols "${{ github.event.inputs.max_symbols || '2000' }}" \
+            --concurrency 1 \
+            --delay "${{ github.event.inputs.delay || '700' }}"
 
-      - name: Verify the dataset reads back
+      # A silently corrupt or stale dataset would be worse than none at all, so
+      # publication is gated on it reading back correctly.
+      - name: Verify the dataset
         run: npx tsx --conditions react-server scripts/bundle-verify.mts
 
       - name: Publish as the rolling data release

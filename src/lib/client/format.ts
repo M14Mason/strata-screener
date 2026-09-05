@@ -48,6 +48,36 @@ export function fmtDate(ms: number | null | undefined): string {
 }
 
 /**
+ * Trading days between a timestamp and now, ignoring weekends.
+ *
+ * Used to decide whether an end-of-day dataset is merely from yesterday's close
+ * (normal) or genuinely stale (worth flagging). Counting calendar days would
+ * mark every Monday morning as two days behind.
+ */
+export function tradingDaysSince(ms: number, now = Date.now()): number {
+  if (!ms || ms > now) return 0;
+  let days = 0;
+  const cursor = new Date(ms);
+  cursor.setUTCHours(0, 0, 0, 0);
+  const end = new Date(now);
+  end.setUTCHours(0, 0, 0, 0);
+  while (cursor < end) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const d = cursor.getUTCDay();
+    if (d !== 0 && d !== 6) days++;
+  }
+  return days;
+}
+
+/** How many sessions old data may be before the UI calls it stale. */
+export const STALE_AFTER_SESSIONS = 3;
+
+export function isStale(f: { asOf: number | null; isDemo: boolean }): boolean {
+  if (f.isDemo || !f.asOf) return false;
+  return tradingDaysSince(f.asOf) > STALE_AFTER_SESSIONS;
+}
+
+/**
  * The "data as of" line. Freshness is stated in the provider's own terms --
  * delayed data is never described as real time, and synthetic data always says
  * so.
