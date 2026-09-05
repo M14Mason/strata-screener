@@ -349,7 +349,9 @@ export default function ScreenerClient() {
         </div>
 
         {/* ------------------------------------------------------------ output */}
-        <div className="min-w-0 flex-1">
+        {/* pb-bottom-action clears both the fixed nav and the floating Scan
+            button; without it the last result row sits underneath them. */}
+        <div className="pb-bottom-action min-w-0 flex-1">
           {status === "error" ? (
             <EmptyState
               title="The scan could not run"
@@ -423,7 +425,10 @@ export default function ScreenerClient() {
       </Sheet>
 
       {/* Sticky scan button on phones (requirement 28). */}
-      <div className="safe-bottom pointer-events-none fixed inset-x-0 bottom-[60px] z-30 flex justify-center px-4 pb-3 xl:hidden">
+      <div
+        className="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 xl:hidden"
+        style={{ bottom: "calc(var(--bottom-nav-space) + 10px)" }}
+      >
         <motion.button
           className="btn btn-primary pointer-events-auto !rounded-full !px-5 !py-3 text-[14px]"
           style={{ boxShadow: "var(--shadow-pop)" }}

@@ -93,7 +93,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ------------------------------------------------------------- main */}
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
-        <main className="min-w-0 flex-1 pb-[76px] md:pb-0">{children}</main>
+        <main className="pb-bottom-nav min-w-0 flex-1">{children}</main>
       </div>
 
       {/* ----------------------------------------------------------- mobile */}
@@ -107,7 +107,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Link
               key={href}
               href={href}
-              className="relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-1 px-1 pt-1.5 text-[10.5px] font-medium"
+              className="relative flex min-h-[var(--bottom-nav-h)] flex-1 flex-col items-center justify-center gap-1 px-1 pt-1.5 text-[10.5px] font-medium"
               style={{ color: active ? "var(--accent)" : "var(--text-faint)" }}
             >
               {active && (

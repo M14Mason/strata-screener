@@ -265,5 +265,32 @@ select.input {
   }
 }
 
+/* --- mobile bottom chrome ----------------------------------------------
+   Two fixed layers sit at the bottom of the viewport on phones: the
+   navigation bar, and (on the screener) a floating Scan button above it.
+   Their heights are declared once here so content padding can be derived
+   from them instead of hard-coded, which is how the last result card ended
+   up sitting underneath the Scan button.                                  */
+:root {
+  --bottom-nav-h: 60px;
+  --bottom-nav-space: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom));
+  /* Floating action button: its own height plus the gap above the nav. */
+  --floating-action-h: 47px;
+  --floating-action-space: calc(var(--floating-action-h) + 16px);
+}
+
 /* Give the mobile bottom bar room and respect the home indicator. */
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Clears the fixed bottom navigation. */
+.pb-bottom-nav { padding-bottom: calc(var(--bottom-nav-space) + 12px); }
+
+/* Clears the navigation *and* a floating action button stacked above it. */
+.pb-bottom-action { padding-bottom: calc(var(--bottom-nav-space) + var(--floating-action-space) + 12px); }
+
+@media (min-width: 768px) {
+  .pb-bottom-nav { padding-bottom: 0; }
+}
+@media (min-width: 1280px) {
+  .pb-bottom-action { padding-bottom: 0; }
+}

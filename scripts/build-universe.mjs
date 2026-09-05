@@ -17,7 +17,28 @@ const EXCHANGE_CODE = { A: "AMEX", N: "NYSE", P: "NYSE", Z: "NYSE", V: "NYSE", Q
 
 // Names that indicate a non-common-stock instrument we do not want in the
 // default universe (warrants, rights, units, preferreds, notes, trust certs).
-const REJECT_NAME = /\b(warrant|right|unit|preferred|depositary share|debenture|note[s]? due|subordinated|trust certificate|contingent value)\b/i;
+//
+// Plurals matter: an earlier version matched "warrant" but not "Warrants", so
+// every plural-named warrant slipped through the name filter.
+const REJECT_NAME =
+  /\b(warrants?|rights?|units?|preferred|depositary shares?|debentures?|notes? due|subordinated|trust certificates?|contingent value)\b/i;
+
+// Symbols are accepted as either a plain ticker or a dotted class share
+// (BRK.B, BF.A). Dotted symbols were previously dropped outright, which lost
+// ~20 real common stocks including both Berkshire classes.
+const SYMBOL_OK = /^[A-Z]{1,5}(\.[A-Z])?$/;
+
+// In the NASDAQ Trader convention the letter after the dot encodes the
+// instrument for non-equity issues: W warrants, R rights, U units, P preferred.
+// Those are structurally excluded regardless of how the name is written.
+const REJECT_SUFFIX = /\.(W|R|U|P)$/;
+
+function acceptSymbol(symbol, name) {
+  if (!SYMBOL_OK.test(symbol)) return false;
+  if (REJECT_SUFFIX.test(symbol)) return false;
+  if (REJECT_NAME.test(name)) return false;
+  return true;
+}
 
 async function text(url) {
   const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
@@ -41,8 +62,7 @@ for (const line of nasdaq.split("\n").slice(1)) {
   if (f.length < 8) continue;
   const [symbol, name, , testIssue, , , etf] = f;
   if (testIssue === "Y") continue;
-  if (!/^[A-Z]{1,5}$/.test(symbol)) continue;
-  if (REJECT_NAME.test(name)) continue;
+  if (!acceptSymbol(symbol, name)) continue;
   rows.set(symbol, { s: symbol, n: cleanName(name), x: "NASDAQ", e: etf === "Y" ? 1 : 0 });
 }
 
@@ -52,8 +72,7 @@ for (const line of other.split("\n").slice(1)) {
   if (f.length < 8) continue;
   const [actSymbol, name, exch, , etf, , testIssue] = f;
   if (testIssue === "Y") continue;
-  if (!/^[A-Z]{1,5}$/.test(actSymbol)) continue;
-  if (REJECT_NAME.test(name)) continue;
+  if (!acceptSymbol(actSymbol, name)) continue;
   const x = EXCHANGE_CODE[exch];
   if (!x) continue;
   if (rows.has(actSymbol)) continue;

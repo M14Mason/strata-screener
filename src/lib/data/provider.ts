@@ -1,6 +1,7 @@
 import "server-only";
 import type { MarketDataProvider } from "./types";
 import { DemoProvider } from "./demo";
+import { NasdaqProvider } from "./nasdaq";
 import { BundleProvider, loadBundle } from "./bundle";
 import { YahooProvider } from "./yahoo";
 import { PolygonProvider } from "./polygon";
@@ -14,6 +15,7 @@ import { TiingoProvider } from "./tiingo";
  */
 const FACTORIES: Record<string, () => MarketDataProvider> = {
   bundle: () => new BundleProvider(),
+  nasdaq: () => new NasdaqProvider(),
   demo: () => new DemoProvider(),
   yahoo: () => new YahooProvider(),
   polygon: () => new PolygonProvider(),
@@ -24,6 +26,7 @@ export const PROVIDER_IDS = Object.keys(FACTORIES);
 
 export const PROVIDER_NOTES: Record<string, string> = {
   bundle: "Serves a prebuilt end-of-day dataset. No API calls at request time — the right choice for a deployed instance.",
+  nasdaq: "Real split-adjusted end-of-day bars from Nasdaq's public endpoint. No API key needed. The default when no dataset is installed.",
   demo: "Deterministic synthetic prices. No key, no network. Always badged as demo data.",
   yahoo: "Real delayed bars with no key, but an undocumented endpoint that rate-limits shared server IPs. Fine locally, unreliable when hosted.",
   polygon: "Real end-of-day data. Needs POLYGON_API_KEY. Its grouped-daily endpoint makes whole-market history cheap.",
@@ -36,10 +39,10 @@ let cachedId: string | null = null;
 /**
  * Resolves the configured provider.
  *
- * When nothing is configured, prefer a prebuilt dataset if one shipped with the
- * deployment, and otherwise fall back to demo. That way a host that ran the
- * data pipeline serves real numbers automatically, and one that did not still
- * boots into a working, clearly-labelled app instead of erroring.
+ * When nothing is configured: use a prebuilt dataset if one shipped with the
+ * deployment, otherwise fetch real bars from Nasdaq. Demo data is now only ever
+ * used when it is asked for explicitly, so nobody ends up looking at simulated
+ * prices by accident.
  */
 export function resolveProviderId(): string {
   const configured = process.env.MARKET_DATA_PROVIDER?.trim().toLowerCase();
@@ -49,7 +52,7 @@ export function resolveProviderId(): string {
   } catch {
     // A malformed dataset should not stop the app booting.
   }
-  return "demo";
+  return "nasdaq";
 }
 
 export function getProvider(): MarketDataProvider {

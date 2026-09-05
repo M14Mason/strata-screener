@@ -1,219 +1,292 @@
 /**
- * Builds data/eod-bundle.bin — the prebuilt end-of-day dataset the hosted app
+ * Builds data/eod-bundle.bin -- the prebuilt end-of-day dataset the hosted app
  * serves every request from.
  *
  * Why this exists: a screener has to look at the whole market at once, and no
- * free market-data API will let a web server make thousands of calls per page
- * load. Screening is an end-of-day activity anyway, so one scheduled job a day
- * produces a dataset, and the app then answers every scan with zero network
- * access. That is what makes a hosted deployment both fast and free.
+ * free market-data API will survive thousands of calls per page load. Screening
+ * is an end-of-day activity anyway, so one scheduled job a day produces a
+ * dataset and the app then answers every scan with no network access at all.
+ * That is what makes a hosted deployment both fast and free.
  *
- * Source: Polygon.io's grouped-daily endpoint, which returns every US ticker
- * for one session in a single request. Building 320 sessions therefore costs
- * ~320 requests total, not 320 x 6,000.
+ * Sources:
+ *   nasdaq  (default) Nasdaq's public historical-prices endpoint. No API key.
+ *   polygon           Polygon.io grouped-daily. Needs POLYGON_API_KEY, but
+ *                     returns a whole session per request, so it is far cheaper
+ *                     in requests if you have a key.
  *
  * Usage:
- *   POLYGON_API_KEY=xxx npx tsx scripts/build-bundle.mts [--sessions 320] [--max-symbols 0]
- *
- * Past sessions never change, so each day's response is cached under .cache/.
- * A daily re-run costs one new request.
+ *   npx tsx scripts/build-bundle.mts [--sessions 320] [--max-symbols 0]
+ *                                    [--source nasdaq|polygon] [--etfs]
  */
 import fs from "node:fs";
 import path from "node:path";
 import { allListings } from "../src/lib/data/reference";
 import { encodeBundle, VOLUME_SCALE } from "../src/lib/data/bundle-format";
+import { fetchNasdaqBars } from "../src/lib/data/nasdaq";
+import type { Bar } from "../src/lib/data/types";
 
 const DAY_MS = 86_400_000;
-const BASE = "https://api.polygon.io";
 
-const argOf = (name: string, fallback: number) => {
+const numArg = (name: string, fallback: number) => {
   const i = process.argv.indexOf(`--${name}`);
   if (i < 0) return fallback;
   const v = Number(process.argv[i + 1]);
   return Number.isFinite(v) ? v : fallback;
 };
+const strArg = (name: string, fallback: string) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+};
+const flag = (name: string) => process.argv.includes(`--${name}`);
 
-const SESSIONS = argOf("sessions", 320);
-// 0 = every listing. Lower it to shrink the file for a constrained host.
-const MAX_SYMBOLS = argOf("max-symbols", 0);
+const SESSIONS = numArg("sessions", 320);
+// Milliseconds between requests per worker. Nasdaq's edge blocks an IP after a
+// few hundred rapid requests, and the block lasts far longer than it takes to
+// trigger, so the default pace is deliberately slow. Measured: concurrency 10
+// with no delay is blocked after ~225 requests.
+const DELAY_MS = numArg("delay", Number(process.env.BUNDLE_DELAY_MS || 900));
+const MAX_SYMBOLS = numArg("max-symbols", 0); // 0 = every listing
+const SOURCE = strArg("source", process.env.BUNDLE_SOURCE || "nasdaq");
+const INCLUDE_ETFS = flag("etfs") || process.env.BUNDLE_INCLUDE_ETFS === "1";
+const CONCURRENCY = numArg("concurrency", Number(process.env.PROVIDER_CONCURRENCY || 8));
 const OUT = process.env.EOD_BUNDLE_PATH || "data/eod-bundle.bin";
-const CACHE_DIR = path.resolve(process.cwd(), ".cache", "grouped");
 
-const key = process.env.POLYGON_API_KEY;
-if (!key) {
-  console.error(
-    "POLYGON_API_KEY is not set.\n\n" +
-      "Get a free key at https://polygon.io/dashboard/signup — the free tier covers\n" +
-      "end-of-day data and the grouped-daily endpoint this script uses.\n"
-  );
-  process.exit(1);
-}
+// A symbol needs enough history for the long-period indicators to mean
+// anything; below this almost every screen would read null.
+const MIN_SESSIONS = 60;
 
-// Polygon's free tier allows 5 requests a minute. Staying under it is far
-// cheaper than getting the key throttled.
-const RATE_LIMIT = Number(process.env.POLYGON_RATE_LIMIT ?? 5);
-const requestTimes: number[] = [];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function throttle() {
-  if (RATE_LIMIT <= 0) return;
-  for (;;) {
-    const now = Date.now();
-    while (requestTimes.length && now - requestTimes[0] > 60_000) requestTimes.shift();
-    if (requestTimes.length < RATE_LIMIT) {
-      requestTimes.push(now);
-      return;
-    }
-    await sleep(60_000 - (now - requestTimes[0]) + 50);
-  }
-}
-
 const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-interface GroupedRow {
-  T: string;
-  o: number;
-  h: number;
-  l: number;
-  c: number;
-  v: number;
+// ---------------------------------------------------------------- selection
+
+let listings = allListings().filter((l) => INCLUDE_ETFS || !l.isEtf);
+
+if (MAX_SYMBOLS > 0 && listings.length > MAX_SYMBOLS) {
+  // Keep the largest names, so a capped dataset is the liquid end of the
+  // market rather than an alphabetical slice.
+  const { getProfile } = await import("../src/lib/data/reference");
+  listings = [...listings]
+    .sort((a, b) => (getProfile(b.symbol).marketCap ?? 0) - (getProfile(a.symbol).marketCap ?? 0))
+    .slice(0, MAX_SYMBOLS);
+  console.log(`Capped to the ${MAX_SYMBOLS} largest listings by market cap.`);
 }
 
-async function grouped(date: string): Promise<GroupedRow[] | null> {
-  const cacheFile = path.join(CACHE_DIR, `${date}.json`);
-  if (fs.existsSync(cacheFile)) {
-    try {
-      return JSON.parse(fs.readFileSync(cacheFile, "utf8")) as GroupedRow[];
-    } catch {
-      // Corrupt cache entry: fall through and refetch.
-    }
-  }
+console.log(
+  `Building dataset: ${listings.length.toLocaleString()} listings, ${SESSIONS} sessions, ` +
+    `source=${SOURCE}, ETFs=${INCLUDE_ETFS ? "included" : "excluded"}`
+);
 
-  for (let attempt = 0; attempt < 4; attempt++) {
-    await throttle();
-    const res = await fetch(
-      `${BASE}/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${key}`,
-      { signal: AbortSignal.timeout(30_000) }
-    );
-    if (res.status === 429) {
-      await sleep(15_000);
-      continue;
-    }
-    if (res.status === 403 || res.status === 401) {
-      throw new Error(
-        `Polygon rejected the key (HTTP ${res.status}). Check POLYGON_API_KEY, and that your plan covers historical aggregates.`
-      );
-    }
-    if (!res.ok) {
-      if (attempt === 3) throw new Error(`Polygon returned HTTP ${res.status} for ${date}.`);
-      await sleep(2000 * (attempt + 1));
-      continue;
-    }
-    const json = (await res.json()) as { results?: GroupedRow[] };
-    const rows = json.results ?? [];
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(cacheFile, JSON.stringify(rows));
-    return rows;
+// ------------------------------------------------------------------ fetch
+
+const barsBySymbol = new Map<string, Bar[]>();
+let done = 0;
+let failed = 0;
+let blockedStreak = 0;
+const started = Date.now();
+
+/**
+ * Per-symbol cache on disk, so a run that is interrupted -- or blocked partway
+ * -- can be restarted and pick up where it stopped instead of refetching
+ * everything. Bars for a past session never change.
+ */
+const SYMBOL_CACHE = path.resolve(process.cwd(), ".cache", "nasdaq-bars");
+const cacheKeyFor = (symbol: string) =>
+  path.join(SYMBOL_CACHE, `${symbol.replace(/[^A-Z0-9.]/gi, "_")}.json`);
+
+function readCached(symbol: string): Bar[] | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(cacheKeyFor(symbol), "utf8")) as { asOf: number; bars: Bar[] };
+    // Only reuse a cache entry from the current session's data.
+    if (raw.asOf >= todayCutoff) return raw.bars;
+  } catch {
+    /* miss */
   }
   return null;
 }
 
-// ---------------------------------------------------------------- main
-
-// Walk back over weekdays. Market holidays come back empty and are dropped, so
-// we keep going until we have SESSIONS days that actually traded.
-const candidates: string[] = [];
-let cursor = Date.now();
-while (candidates.length < SESSIONS * 1.6 + 40) {
-  const day = new Date(cursor).getUTCDay();
-  if (day !== 0 && day !== 6) candidates.push(ymd(cursor));
-  cursor -= DAY_MS;
-}
-
-console.log(`Fetching up to ${candidates.length} candidate sessions (target ${SESSIONS} trading days)…`);
-if (RATE_LIMIT > 0) {
-  console.log(`Rate limit ${RATE_LIMIT}/min. Uncached days will take roughly ${Math.ceil(SESSIONS / RATE_LIMIT)} minutes.`);
-}
-
-const sessions: Array<{ date: string; rows: GroupedRow[] }> = [];
-for (const date of candidates) {
-  if (sessions.length >= SESSIONS) break;
-  const rows = await grouped(date);
-  if (!rows || rows.length === 0) continue; // holiday or not yet published
-  sessions.push({ date, rows });
-  if (sessions.length % 20 === 0) console.log(`  ${sessions.length}/${SESSIONS} sessions`);
-}
-
-if (sessions.length === 0) throw new Error("Polygon returned no sessions at all — check the API key and plan.");
-sessions.reverse(); // oldest first
-
-// Restrict to listings we know about, so the dataset lines up with the
-// reference layer the screener filters on.
-const known = new Map(allListings().map((l) => [l.symbol, l]));
-const traded = new Map<string, number>();
-for (const s of sessions) {
-  for (const r of s.rows) {
-    if (!known.has(r.T)) continue;
-    traded.set(r.T, (traded.get(r.T) ?? 0) + 1);
+function writeCached(symbol: string, bars: Bar[]) {
+  try {
+    fs.mkdirSync(SYMBOL_CACHE, { recursive: true });
+    fs.writeFileSync(cacheKeyFor(symbol), JSON.stringify({ asOf: bars[bars.length - 1]?.t ?? 0, bars }));
+  } catch {
+    /* the cache is an optimisation, never a requirement */
   }
 }
 
-// A symbol needs enough history for the long-period indicators to mean
-// anything; below ~60 sessions almost every screen would read null.
-let symbols = [...traded.entries()]
-  .filter(([, n]) => n >= Math.min(60, sessions.length))
-  .map(([s]) => s)
-  .sort();
+// Cache entries are good if their newest bar is from the last few days.
+const todayCutoff = Date.now() - 5 * DAY_MS;
 
-if (MAX_SYMBOLS > 0 && symbols.length > MAX_SYMBOLS) {
-  const liquidity = new Map<string, number>();
-  for (const s of sessions.slice(-20)) {
-    for (const r of s.rows) {
-      if (!traded.has(r.T)) continue;
-      liquidity.set(r.T, (liquidity.get(r.T) ?? 0) + r.c * r.v);
+class BlockedError extends Error {}
+
+async function fetchNasdaq() {
+  let cursor = 0;
+  let aborted = false;
+
+  const workers = Array.from({ length: CONCURRENCY }, async () => {
+    while (cursor < listings.length && !aborted) {
+      const listing = listings[cursor++];
+
+      const cached = readCached(listing.symbol);
+      if (cached) {
+        if (cached.length >= MIN_SESSIONS) barsBySymbol.set(listing.symbol, cached);
+        done++;
+        continue;
+      }
+
+      try {
+        const bars = await fetchNasdaqBars(listing.symbol, SESSIONS);
+        if (bars.length) {
+          writeCached(listing.symbol, bars);
+          blockedStreak = 0;
+          if (bars.length >= MIN_SESSIONS) barsBySymbol.set(listing.symbol, bars);
+        }
+      } catch (error) {
+        failed++;
+        const message = error instanceof Error ? error.message : "";
+        // A 403 is the edge blocking this IP, not a property of the symbol.
+        // Carrying on would burn thousands of requests against a closed door
+        // and produce a dataset full of holes, so a sustained streak aborts.
+        if (/HTTP 403|rejected the request/i.test(message)) {
+          blockedStreak++;
+          if (blockedStreak >= 25) {
+            aborted = true;
+            throw new BlockedError(
+              `Nasdaq blocked this IP after ${done} requests (${barsBySymbol.size} symbols collected). ` +
+                `Progress is cached under .cache/nasdaq-bars, so re-running later resumes from here. ` +
+                `Raise --delay or lower --concurrency to stay under the limit.`
+            );
+          }
+        }
+      }
+
+      done++;
+      if (done % 100 === 0) {
+        const rate = done / ((Date.now() - started) / 1000);
+        const eta = Math.round((listings.length - done) / Math.max(rate, 0.01));
+        console.log(
+          `  ${done}/${listings.length}  kept ${barsBySymbol.size}  failed ${failed}  ` +
+            `${rate.toFixed(1)}/s  eta ${Math.floor(eta / 60)}m${String(eta % 60).padStart(2, "0")}s`
+        );
+      }
+
+      if (DELAY_MS > 0) await sleep(DELAY_MS);
     }
+  });
+
+  const results = await Promise.allSettled(workers);
+  const blocked = results.find((r) => r.status === "rejected" && r.reason instanceof BlockedError);
+  if (blocked && blocked.status === "rejected") {
+    console.warn(`\n  ! ${blocked.reason.message}\n`);
   }
-  symbols = symbols.sort((a, b) => (liquidity.get(b) ?? 0) - (liquidity.get(a) ?? 0)).slice(0, MAX_SYMBOLS).sort();
-  console.log(`Capped to the ${MAX_SYMBOLS} most liquid symbols.`);
 }
 
-const S = sessions.length;
+async function fetchPolygon() {
+  const key = process.env.POLYGON_API_KEY;
+  if (!key) throw new Error("--source polygon needs POLYGON_API_KEY. Omit --source to use Nasdaq, which needs no key.");
+  const rate = Number(process.env.POLYGON_RATE_LIMIT ?? 5);
+  const stamps: number[] = [];
+  const throttle = async () => {
+    if (rate <= 0) return;
+    for (;;) {
+      const now = Date.now();
+      while (stamps.length && now - stamps[0] > 60_000) stamps.shift();
+      if (stamps.length < rate) return void stamps.push(now);
+      await sleep(60_000 - (now - stamps[0]) + 50);
+    }
+  };
+
+  const wanted = new Set(listings.map((l) => l.symbol));
+  const cacheDir = path.resolve(process.cwd(), ".cache", "grouped");
+  const dates: string[] = [];
+  let cursor = Date.now();
+  while (dates.length < SESSIONS * 1.6 + 40) {
+    const d = new Date(cursor).getUTCDay();
+    if (d !== 0 && d !== 6) dates.push(ymd(cursor));
+    cursor -= DAY_MS;
+  }
+
+  let sessions = 0;
+  for (const date of dates) {
+    if (sessions >= SESSIONS) break;
+    const cacheFile = path.join(cacheDir, `${date}.json`);
+    let rows: Array<{ T: string; o: number; h: number; l: number; c: number; v: number; t: number }> | null = null;
+    if (fs.existsSync(cacheFile)) {
+      try { rows = JSON.parse(fs.readFileSync(cacheFile, "utf8")); } catch { rows = null; }
+    }
+    if (!rows) {
+      await throttle();
+      const res = await fetch(
+        `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${key}`,
+        { signal: AbortSignal.timeout(30_000) }
+      );
+      if (res.status === 429) { await sleep(15_000); continue; }
+      if (!res.ok) throw new Error(`Polygon returned HTTP ${res.status} for ${date}.`);
+      rows = ((await res.json()) as { results?: typeof rows }).results ?? [];
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(cacheFile, JSON.stringify(rows));
+    }
+    if (!rows.length) continue; // holiday
+    sessions++;
+    for (const r of rows) {
+      if (!wanted.has(r.T)) continue;
+      const list = barsBySymbol.get(r.T) ?? [];
+      list.push({ t: r.t, o: r.o, h: r.h, l: r.l, c: r.c, v: r.v });
+      barsBySymbol.set(r.T, list);
+    }
+    if (sessions % 20 === 0) console.log(`  ${sessions}/${SESSIONS} sessions`);
+  }
+  for (const bars of barsBySymbol.values()) bars.sort((a, b) => a.t - b.t);
+  for (const [sym, bars] of barsBySymbol) if (bars.length < MIN_SESSIONS) barsBySymbol.delete(sym);
+}
+
+if (SOURCE === "polygon") await fetchPolygon();
+else await fetchNasdaq();
+
+if (barsBySymbol.size === 0) throw new Error("No symbols returned usable history — refusing to write an empty dataset.");
+
+// ------------------------------------------------------------------ pack
+
+// The session axis is the union of every date seen, so a symbol that did not
+// trade on some day simply has a gap rather than shifting the whole series.
+const allDates = new Set<number>();
+for (const bars of barsBySymbol.values()) for (const b of bars) allDates.add(b.t);
+const dates = [...allDates].sort((a, b) => a - b).slice(-SESSIONS);
+const dateIndex = new Map(dates.map((d, i) => [d, i]));
+
+const symbols = [...barsBySymbol.keys()].sort();
+const S = dates.length;
 const N = symbols.length;
-const row = new Map(symbols.map((s, i) => [s, i]));
 
 const alloc = () => {
   const a = new Float32Array(N * S);
   a.fill(NaN); // NaN = "did not trade this session"
   return a;
 };
-const open = alloc();
-const high = alloc();
-const low = alloc();
-const close = alloc();
-const volume = alloc();
+const open = alloc(), high = alloc(), low = alloc(), close = alloc(), volume = alloc();
 
-for (let i = 0; i < S; i++) {
-  for (const r of sessions[i].rows) {
-    const idx = row.get(r.T);
-    if (idx === undefined) continue;
-    const at = idx * S + i;
-    open[at] = r.o;
-    high[at] = r.h;
-    low[at] = r.l;
-    close[at] = r.c;
-    volume[at] = r.v / VOLUME_SCALE;
+for (let i = 0; i < N; i++) {
+  const bars = barsBySymbol.get(symbols[i])!;
+  for (const b of bars) {
+    const j = dateIndex.get(b.t);
+    if (j === undefined) continue;
+    const at = i * S + j;
+    open[at] = b.o; high[at] = b.h; low[at] = b.l; close[at] = b.c;
+    volume[at] = b.v / VOLUME_SCALE;
   }
 }
 
-const dates = sessions.map((s) => Date.parse(`${s.date}T00:00:00Z`));
 const bytes = encodeBundle({ asOf: dates[dates.length - 1], dates, names: symbols, open, high, low, close, volume });
+const outPath = path.resolve(process.cwd(), OUT);
+fs.mkdirSync(path.dirname(outPath), { recursive: true });
+fs.writeFileSync(outPath, bytes);
 
-fs.mkdirSync(path.dirname(path.resolve(process.cwd(), OUT)), { recursive: true });
-fs.writeFileSync(path.resolve(process.cwd(), OUT), bytes);
-
+const mins = ((Date.now() - started) / 60_000).toFixed(1);
 console.log(
   `\nWrote ${OUT}\n` +
     `  ${N.toLocaleString()} symbols x ${S} sessions\n` +
     `  ${(bytes.length / 1e6).toFixed(1)} MB\n` +
-    `  latest session ${sessions[S - 1].date}`
+    `  latest session ${ymd(dates[dates.length - 1])}\n` +
+    `  ${failed} symbols failed, ${listings.length - N} of ${listings.length} not included\n` +
+    `  took ${mins} minutes`
 );

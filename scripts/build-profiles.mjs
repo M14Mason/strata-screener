@@ -57,7 +57,8 @@ for (const exch of EXCHANGES) {
   const rows = json?.data?.rows ?? json?.data?.table?.rows ?? [];
   for (const r of rows) {
     const s = String(r.symbol || "").trim().toUpperCase();
-    if (!/^[A-Z]{1,5}$/.test(s)) continue;
+    // Match the universe builder: plain tickers plus dotted class shares.
+    if (!/^[A-Z]{1,5}(\.[A-Z])?$/.test(s)) continue;
     if (out[s]) continue;
     out[s] = {
       sector: SECTOR_MAP[r.sector] ?? (r.sector ? "Miscellaneous" : null),
