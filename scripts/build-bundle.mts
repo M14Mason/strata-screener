@@ -20,7 +20,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { allListings } from "../src/lib/data/reference";
+import { allListings, BENCHMARK_SYMBOLS } from "../src/lib/data/reference";
 import { encodeBundle, VOLUME_SCALE } from "../src/lib/data/bundle-format";
 import { fetchNasdaqBars } from "../src/lib/data/nasdaq";
 import type { Bar } from "../src/lib/data/types";
@@ -70,6 +70,18 @@ if (MAX_SYMBOLS > 0 && listings.length > MAX_SYMBOLS) {
     .sort((a, b) => (getProfile(b.symbol).marketCap ?? 0) - (getProfile(a.symbol).marketCap ?? 0))
     .slice(0, MAX_SYMBOLS);
   console.log(`Capped to the ${MAX_SYMBOLS} largest listings by market cap.`);
+}
+
+// The dashboard's market overview is built from broad-market ETFs. They have no
+// market cap in the reference data, so a size-capped or stocks-only build drops
+// them and the overview renders empty. Add them back unconditionally.
+{
+  const present = new Set(listings.map((l) => l.symbol));
+  const benchmarks = allListings().filter((l) => (BENCHMARK_SYMBOLS as readonly string[]).includes(l.symbol) && !present.has(l.symbol));
+  if (benchmarks.length) {
+    listings = [...listings, ...benchmarks];
+    console.log(`Added ${benchmarks.length} benchmark ETFs: ${benchmarks.map((b) => b.symbol).join(", ")}`);
+  }
 }
 
 console.log(

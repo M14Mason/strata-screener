@@ -40,6 +40,15 @@ const profiles = new Map<string, Profile>(
   ])
 );
 
+/**
+ * Broad-market ETFs the dashboard uses as benchmarks.
+ *
+ * They carry no market cap in the reference data, so a dataset build that caps
+ * by size would drop them and leave the dashboard's market overview blank.
+ * Declared here so the builder can always include them.
+ */
+export const BENCHMARK_SYMBOLS = ["SPY", "QQQ", "DIA", "IWM"] as const;
+
 export const REFERENCE_BUILT_AT = universeJson.builtAt as string;
 export const PROFILES_BUILT_AT = profilesJson.builtAt as string;
 
