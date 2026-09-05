@@ -40,7 +40,10 @@ export async function fetchStock(symbol: string, range: string, signal?: AbortSi
 export interface MarketResponse {
   benchmarks: Array<{
     symbol: string;
+    /** The fund's own name, e.g. "SPDR S&P 500 ETF". */
     label: string;
+    /** The index it tracks. Its level is NOT the fund's share price. */
+    tracks: string;
     price: number | null;
     changePct: number | null;
     mom20: number | null;

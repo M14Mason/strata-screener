@@ -81,6 +81,11 @@ jobs:
       - name: Verify the dataset
         run: npx tsx --conditions react-server scripts/bundle-verify.mts
 
+      # Proves the screener returns exactly the right symbols against the data
+      # about to be published, checking both false positives and false negatives.
+      - name: Verify screener correctness against the new dataset
+        run: npx tsx --conditions react-server scripts/verify-screener.mts
+
       - name: Publish as the rolling data release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -9,12 +9,20 @@ import { SECTORS } from "@/lib/data/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Broad-market ETF proxies used for the dashboard's market strip. */
+/**
+ * Broad-market ETFs used for the dashboard's market strip.
+ *
+ * These are ETF *share prices*, not index levels, and the two are nowhere near
+ * each other: SPY trades around a tenth of the S&P 500. Labelling the card
+ * "S&P 500" over a $770 price implied the index had collapsed by a factor of
+ * ten, so each entry now carries the fund's own name and the index it tracks,
+ * and the UI shows the symbol rather than the index name.
+ */
 const BENCHMARKS = [
-  { symbol: "SPY", label: "S&P 500" },
-  { symbol: "QQQ", label: "Nasdaq 100" },
-  { symbol: "DIA", label: "Dow 30" },
-  { symbol: "IWM", label: "Russell 2000" },
+  { symbol: "SPY", label: "SPDR S&P 500 ETF", tracks: "S&P 500" },
+  { symbol: "QQQ", label: "Invesco QQQ Trust", tracks: "Nasdaq 100" },
+  { symbol: "DIA", label: "SPDR Dow Jones ETF", tracks: "Dow Jones Industrial Average" },
+  { symbol: "IWM", label: "iShares Russell 2000 ETF", tracks: "Russell 2000" },
 ];
 
 /**
@@ -32,6 +40,7 @@ export async function GET() {
       return {
         symbol: b.symbol,
         label: b.label,
+        tracks: b.tracks,
         price: snap ? metricValue(snap, "close") : null,
         changePct: snap ? metricValue(snap, "changePct") : null,
         mom20: snap ? metricValue(snap, "mom20") : null,

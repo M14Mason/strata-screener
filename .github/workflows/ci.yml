@@ -23,5 +23,9 @@ jobs:
         run: npm run test:bundle
       - name: Indicators vs. real market data
         run: npm run test:real
+      # Skips itself when no dataset is installed, which is the usual case on a
+      # pull request; the nightly data job runs it before publishing.
+      - name: Screener correctness
+        run: npm run test:screener
       - name: Production build
         run: npm run build

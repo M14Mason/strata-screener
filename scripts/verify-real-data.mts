@@ -11,7 +11,7 @@
  * Both are frozen, so this test is deterministic and needs no network.
  */
 import fixture from "../src/data/fixtures/aapl-daily.json";
-import { bollinger, ema, macd, rsi, sma } from "../src/lib/indicators";
+import { adx, atr, bollinger, ema, macd, momentum, rsi, sma } from "../src/lib/indicators";
 
 type Row = [string, number, number, number, number, number];
 const rows = fixture.rows as Row[];
@@ -76,6 +76,70 @@ for (const [d, lower, middle, upper] of [
   check(`BB middle as EMA ${d}`, e20[i], middle, 1e-6);
   // And the SMA centre is what we actually ship.
   check(`BB middle as SMA ${d}`, bb.middle[i], sma(close, 20)[i]!, 1e-9);
+}
+
+// --- RSI(2): the app's headline indicator ---------------------------------
+console.log("");
+const r2 = rsi(close, 2);
+for (const [d, v] of [
+  ["2026-08-28", 97.0424178370572],
+  ["2026-08-31", 53.18218818250703],
+  ["2026-09-01", 87.08895027342085],
+  ["2026-09-02", 84.57382421770374],
+  ["2026-09-03", 92.66898291832227],
+] as Array<[string, number]>) {
+  check(`RSI(2) ${d}`, r2[at.get(d)!], v, 1e-9);
+}
+
+// --- ATR(14), ADX(14), SMA(200), ROC(20) ----------------------------------
+console.log("");
+const high = rows.map((r) => r[2]);
+const low = rows.map((r) => r[3]);
+const a14 = atr(high, low, close, 14);
+for (const [d, v] of [
+  ["2026-09-01", 7.625113694225825],
+  ["2026-09-02", 7.42831985892398],
+  ["2026-09-03", 7.3762970118579805],
+] as Array<[string, number]>) check(`ATR(14) ${d}`, a14[at.get(d)!], v, 1e-6);
+
+const ax = adx(high, low, close, 14);
+for (const [d, v] of [
+  ["2026-09-01", 13.823829357584469],
+  ["2026-09-02", 14.399631063679108],
+  ["2026-09-03", 15.224185640131365],
+] as Array<[string, number]>) check(`ADX(14) ${d}`, ax.adx[at.get(d)!], v, 1e-6);
+
+const s200 = sma(close, 200);
+for (const [d, v] of [
+  ["2026-09-01", 283.06845],
+  ["2026-09-02", 283.3285],
+  ["2026-09-03", 283.6075],
+] as Array<[string, number]>) check(`SMA(200) ${d}`, s200[at.get(d)!], v, 1e-9);
+
+const m20 = momentum(close, 20);
+for (const [d, v] of [
+  ["2026-09-01", 5.0908268149201685],
+  ["2026-09-02", 4.488745980707387],
+  ["2026-09-03", 5.057456547485661],
+] as Array<[string, number]>) check(`Momentum(20) ${d}`, m20[at.get(d)!], v, 1e-9);
+
+// --- EMA: a warm-up difference, not an arithmetic one ---------------------
+//
+// Recursive indicators never fully forget their seed, so a series computed from
+// a slightly different start date converges but never matches exactly. The
+// residuals against the vendor are ordered precisely by each indicator's decay
+// rate: RSI(2) (alpha 1/2) matches exactly, Wilder-14 lands near 1e-10, and
+// EMA(50) (alpha 2/51, the slowest) is largest at ~6e-5. Asserting the bound
+// rather than equality records that, and would still catch a real defect --
+// anything structurally wrong would be orders of magnitude larger.
+console.log("");
+const e50 = ema(close, 50);
+for (const [d, v] of [
+  ["2026-09-01", 311.01586387032654],
+  ["2026-09-02", 311.5626927381569],
+  ["2026-09-03", 312.2155283170527],
+] as Array<[string, number]>) {
+  check(`EMA(50) ${d} within warm-up tolerance`, e50[at.get(d)!], v, 5e-4);
 }
 
 // --- SMA against a hand-rolled mean ---------------------------------------

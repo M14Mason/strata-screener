@@ -37,10 +37,16 @@ export default function DashboardClient() {
       <StaleBanner freshness={market?.freshness ?? null} />
 
       <section>
-        <div className="mb-2.5 flex items-baseline justify-between gap-3">
+        <div className="mb-1 flex items-baseline justify-between gap-3">
           <h2 className="text-[15px] font-semibold">Market overview</h2>
           <DataBadge freshness={market?.freshness ?? null} />
         </div>
+        {/* Said plainly, because an ETF share price is an order of magnitude
+            away from the index level it tracks and conflating them is the kind
+            of number a reader would act on. */}
+        <p className="mb-2.5 text-[11.5px] faint">
+          Tracked with ETFs. These are fund share prices, not index levels — SPY trades near a tenth of the S&amp;P 500.
+        </p>
 
         {error ? (
           <div className="card px-4 py-4">
@@ -64,8 +70,8 @@ export default function DashboardClient() {
                 <Link href={`/stock/${b.symbol}`} className="card block px-4 py-3.5 transition-colors hover:border-[var(--border-strong)]">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-semibold">{b.label}</p>
-                      <p className="text-[11px] faint">{b.symbol}</p>
+                      <p className="text-[13px] font-semibold">{b.symbol}</p>
+                      <p className="truncate text-[11px] faint">{b.label}</p>
                     </div>
                     <Sparkline values={b.sparkline} />
                   </div>
@@ -73,11 +79,10 @@ export default function DashboardClient() {
                     <span className="text-[17px] font-bold tnum">{fmtPrice(b.price)}</span>
                     <span className={`text-[13px] font-semibold tnum ${moveClass(b.changePct)}`}>{fmtPct(b.changePct)}</span>
                   </div>
-                  {b.aboveSma200 != null && (
-                    <p className="mt-1 text-[11px] faint">
-                      {b.aboveSma200 ? "Above" : "Below"} its 200-day average
-                    </p>
-                  )}
+                  <p className="mt-1 text-[11px] faint">
+                    Tracks {b.tracks}
+                    {b.aboveSma200 != null && ` · ${b.aboveSma200 ? "above" : "below"} its 200-day average`}
+                  </p>
                 </Link>
               </div>
             ))}
