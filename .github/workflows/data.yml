@@ -97,16 +97,26 @@ jobs:
 
       # Redeploy so the running site picks up today's data.
       #
-      # The check lives in the script rather than an `if:` because the `secrets`
-      # context is not available in step conditions -- referencing it there is a
-      # workflow-file error, not a false condition.
-      - name: Trigger host redeploy
+      # Fly has no generic inbound "deploy webhook" -- an earlier version of
+      # this step posted to a DEPLOY_HOOK_URL secret that nothing on the Fly
+      # side ever listened on, so the publish above succeeded every night while
+      # the live site quietly kept serving whatever was baked in at the last
+      # manual `flyctl deploy`. It went ten days stale before anyone noticed.
+      # `flyctl deploy` against the Fly API is the actual mechanism; fly.toml's
+      # EOD_BUNDLE_URL build arg is what makes the fresh build bake in this
+      # run's just-published dataset instead of an old one.
+      #
+      # The presence check lives in the script rather than an `if:` because the
+      # `secrets` context is not available in step conditions -- referencing it
+      # there is a workflow-file error, not a false condition.
+      - name: Deploy to Fly.io
         env:
-          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          if [ -n "$DEPLOY_HOOK_URL" ]; then
-            echo "Triggering redeploy hook…"
-            curl -fsS -X POST "$DEPLOY_HOOK_URL"
-          else
-            echo "No DEPLOY_HOOK_URL secret set — skipping redeploy."
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "No FLY_API_TOKEN secret set — skipping deploy. The dataset is published; only the live redeploy is skipped."
+            exit 0
           fi
+          curl -fsSL https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+          "$HOME/.fly/bin/flyctl" deploy --remote-only --ha=false --wait-timeout 600

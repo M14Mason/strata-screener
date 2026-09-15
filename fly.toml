@@ -11,6 +11,15 @@ primary_region = "iad"          # close to US market data sources
 [build]
   dockerfile = "Dockerfile"
 
+  [build.args]
+    # Baked into every build -- manual or from the nightly Action -- so the
+    # image always pulls the dataset currently published on the repo's rolling
+    # "data-latest" release. Without this, `flyctl deploy` (run either by hand
+    # or by CI) built on whatever data:bundle happened to leave on local disk,
+    # which is how the live site went ten days stale: the nightly job kept
+    # publishing fresh data but nothing ever rebuilt the image from it.
+    EOD_BUNDLE_URL = "https://github.com/M14Mason/strata-screener/releases/download/data-latest/eod-bundle.bin"
+
 [env]
   PORT = "3000"
   # Unset MARKET_DATA_PROVIDER on purpose: the app uses the prebuilt dataset if
